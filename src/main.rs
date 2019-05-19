@@ -59,6 +59,8 @@ fn main() {
             );
         }
         ("", _) => {
+            info!("ensicoin simon version 0.1.0");
+
             let uri: http::Uri = matches.value_of("uri").unwrap().parse().unwrap();
             let address: String = matches.value_of("address").unwrap().parse().unwrap();
 
@@ -91,13 +93,16 @@ fn main() {
                         .map(move |response| (client, response))
                 })
                 .and_then(|(mut client, response)| {
-                    println!("RESPONSE = {:?}", response);
-
                     let (blocks_sender, blocks_receiver) = mpsc::channel(5);
                     let (results_sender, results_receiver) = mpsc::channel(5);
                     tokio::spawn(
                         results_receiver
                             .for_each(move |block: Block| {
+                                info!(
+                                    "block found! hash = {}",
+                                    hash_to_string(&block.double_hash())
+                                );
+
                                 let raw_block = block.serialize();
 
                                 use rpc::PublishRawBlockRequest;
@@ -120,15 +125,17 @@ fn main() {
 
                     inbound
                         .for_each(move |reply| {
-                            println!("REPLY = {:?}", reply);
-
                             if let Some(bt) = reply.block_template {
                                 let mut txs = vec![Transaction {
                                     version: 0,
-                                    flags: Vec::new(),
+                                    flags: vec![format!("{}", bt.height)],
                                     inputs: Vec::new(),
                                     outputs: vec![TransactionOutput {
-                                        value: 0,
+                                        value: if bt.height == 1 {
+                                            0x3ffff
+                                        } else {
+                                            0x200000000000 >> ((bt.height - 1) / 0x4000)
+                                        },
                                         script: vec![OP::Dup, OP::Hash160],
                                     }],
                                 }];
@@ -167,13 +174,15 @@ fn main() {
                         .map_err(|e| eprintln!("gRPC inbound stream error: {:?}", e))
                 })
                 .map_err(|e| {
-                    println!("ERR = {:?}", e);
+                    error!("ERR = {:?}", e);
                 });
 
             tokio::run(service);
         }
         (_, _) => (),
     }
+
+    info!("good bye!");
 }
 
 fn double_hash(hash_a: Sha256Result, hash_b: Sha256Result) -> Sha256Result {
@@ -217,8 +226,6 @@ fn merkle_root(mut resources: Vec<Sha256Result>) -> Sha256Result {
 
         resources.split_off(resources.len() / 2);
     }
-
-    dbg!(hash_to_string(&resources[0]));
 
     resources[0]
 }
@@ -306,8 +313,6 @@ impl Miner {
     }
 
     fn mine_range(&self, from: u64, to: u64) -> Option<u64> {
-        info!("mining from {} to {}", from, to);
-
         let mut block = self.block.clone().unwrap();
 
         for nonce in from..to {
@@ -335,7 +340,7 @@ impl Future for Miner {
                     self.last_nonce = 0;
 
                     info!(
-                        "mining with target = {}",
+                        "mining, target is {}",
                         hash_to_string(&self.block.clone().unwrap().header.target)
                     );
                 }
@@ -365,8 +370,6 @@ impl Future for Miner {
                     self.block
                         .as_mut()
                         .map(|mut block| block.header.nonce = nonce);
-
-                    dbg!(hash_to_string(&self.block.clone().unwrap().double_hash()));
 
                     tokio::spawn(
                         self.out_channel
