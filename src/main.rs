@@ -45,8 +45,17 @@ pub mod rpc {
 fn main() {
     let matches = cli::build_cli().get_matches();
 
-    simplelog::TermLogger::init(simplelog::LevelFilter::Info, simplelog::Config::default())
-        .unwrap();
+    match simplelog::TermLogger::init(simplelog::LevelFilter::Info, simplelog::Config::default()) {
+        Err(_) => {
+            simplelog::SimpleLogger::init(
+                simplelog::LevelFilter::Info,
+                simplelog::Config::default(),
+            )
+            .unwrap();
+            ()
+        }
+        Ok(_) => (),
+    }
 
     match matches.subcommand() {
         ("completions", Some(sub_matches)) => {
@@ -67,7 +76,7 @@ fn main() {
             let dst = Destination::try_from_uri(uri.clone()).unwrap();
             let connector = util::Connector::new(HttpConnector::new(4));
             let settings = client::Builder::new().http2_only(true).clone();
-            let mut make_client = client::Connect::new(connector, settings);
+            let mut make_client = client::Connect::with_builder(connector, settings);
 
             let service = make_client
                 .make_service(dst)
