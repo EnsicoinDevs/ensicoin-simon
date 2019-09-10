@@ -1,8 +1,12 @@
 [package]
 name = "ensicoin-simon"
 version = "0.1.0"
-authors = ["Papin Johyn <johynpapin@protonmail.com>"]
+authors = ["Papin Johyn <johynpapin@protonmail.com>", "Quentin Boyer <qbsecond@gmail.com>"]
 edition = "2018"
+
+repository = "https://github.com/EnsicoinDevs/ensicoin-simon"
+description = "A single concurrent batch execution miner for ensicoin nodes"
+license = "GPL-3.0-or-later"
 
 [dependencies]
 ensicoin_messages = "0.7.4"
