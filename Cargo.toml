@@ -24,6 +24,8 @@ clap = "*"
 http = "0.1"
 hyper = "0.12"
 sha2 = "0.8"
+ripemd160 = "0.8.0"
+secp256k1 = "0.15.5"
 
 [build-dependencies]
 tower-grpc-build = { git = "https://github.com/tower-rs/tower-grpc", features = ["tower-hyper"] }

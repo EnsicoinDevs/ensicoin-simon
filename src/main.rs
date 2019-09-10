@@ -23,14 +23,13 @@ extern crate tower_util;
 mod cli;
 
 use ensicoin_messages::resource::{
-    script::OP,
+    script::{Script, OP},
     tx::{TransactionInput, TransactionOutput},
     Block, BlockHeader, Outpoint, Transaction,
 };
 use ensicoin_serializer::{hash_to_string, Deserialize, Deserializer, Serialize, Sha256Result};
 use futures::{prelude::*, task, Future};
 use hyper::client::connect::{Destination, HttpConnector};
-use num_bigint::BigUint;
 use rpc::{BlockTemplate, Tx};
 use sha2::{Digest, Sha256};
 use tokio_sync::mpsc::{self, Receiver, Sender};
@@ -45,7 +44,11 @@ pub mod rpc {
 fn main() {
     let matches = cli::build_cli().get_matches();
 
-    match simplelog::TermLogger::init(simplelog::LevelFilter::Info, simplelog::Config::default()) {
+    match simplelog::TermLogger::init(
+        simplelog::LevelFilter::Info,
+        simplelog::Config::default(),
+        simplelog::TerminalMode::Mixed,
+    ) {
         Err(_) => {
             simplelog::SimpleLogger::init(
                 simplelog::LevelFilter::Info,
@@ -72,6 +75,18 @@ fn main() {
 
             let uri: http::Uri = matches.value_of("uri").unwrap().parse().unwrap();
             let address: String = matches.value_of("address").unwrap().parse().unwrap();
+            let address: secp256k1::PublicKey = match address.parse() {
+                Ok(a) => a,
+                Err(e) => {
+                    warn!("Invalid address: {}", e);
+                    return;
+                }
+            };
+            let pub_key_hash_code: Vec<_> = address
+                .serialize()
+                .into_iter()
+                .map(|b| OP::Byte(*b))
+                .collect();
 
             let dst = Destination::try_from_uri(uri.clone()).unwrap();
             let connector = util::Connector::new(HttpConnector::new(4));
@@ -135,32 +150,32 @@ fn main() {
                     inbound
                         .for_each(move |reply| {
                             if let Some(bt) = reply.block_template {
-                                let mut txs = vec![Transaction {
-                                    version: 0,
-                                    flags: vec![format!("{}", bt.height)],
-                                    inputs: Vec::new(),
-                                    outputs: vec![TransactionOutput {
-                                        value: if bt.height == 1 {
-                                            0x3ffff
-                                        } else {
-                                            0x200000000000 >> ((bt.height - 1) / 0x4000)
-                                        },
-                                        script: vec![OP::Dup, OP::Hash160],
-                                    }],
-                                }];
+                                let version = 0;
+                                let flags = vec![format!("{}", bt.height)];
+                                let inputs = Vec::new();
+                                let value = if bt.height == 1 {
+                                    0x3ffff
+                                } else {
+                                    0x200000000000 >> ((bt.height - 1) / 0x4000)
+                                };
+                                let mut script = vec![OP::Dup, OP::Hash160, OP::Push(20)];
 
-                                for byte in BigUint::parse_bytes(address.as_bytes(), 16)
-                                    .unwrap()
-                                    .to_bytes_be()
-                                {
-                                    txs[0].outputs[0].script.push(OP::Byte(byte));
-                                }
+                                script.extend_from_slice(&pub_key_hash_code);
 
-                                txs[0].outputs[0].script.extend_from_slice(&vec![
+                                script.extend_from_slice(&vec![
                                     OP::Equal,
                                     OP::Verify,
                                     OP::Checksig,
                                 ]);
+                                let mut txs = vec![Transaction {
+                                    version,
+                                    flags,
+                                    inputs,
+                                    outputs: vec![TransactionOutput {
+                                        value,
+                                        script: Script::from(script),
+                                    }],
+                                }];
 
                                 for tx in reply.txs {
                                     if let Some(t) = rpc_tx_to_transaction(tx) {
@@ -252,7 +267,7 @@ fn rpc_tx_to_transaction(tx: Tx) -> Option<Transaction> {
         };
 
         let mut de = Deserializer::new(bytes::BytesMut::from(input.script));
-        let script = match Vec::deserialize(&mut de) {
+        let script = match Script::deserialize(&mut de) {
             Ok(s) => s,
             Err(_) => return None,
         };
@@ -267,7 +282,7 @@ fn rpc_tx_to_transaction(tx: Tx) -> Option<Transaction> {
 
     for output in tx.outputs {
         let mut de = Deserializer::new(bytes::BytesMut::from(output.script));
-        let script = match Vec::deserialize(&mut de) {
+        let script = match Script::deserialize(&mut de) {
             Ok(s) => s,
             Err(_) => return None,
         };
