@@ -82,11 +82,11 @@ fn main() {
                     return;
                 }
             };
-            let pub_key_hash_code: Vec<_> = address
-                .serialize()
-                .into_iter()
-                .map(|b| OP::Byte(*b))
-                .collect();
+            use ripemd160::Ripemd160;
+            let mut hasher = Ripemd160::new();
+            hasher.input(&address.serialize()[..]);
+            let pub_key_hash_code: Vec<_> =
+                (&hasher.result()).iter().map(|b| OP::Byte(*b)).collect();
 
             let dst = Destination::try_from_uri(uri.clone()).unwrap();
             let connector = util::Connector::new(HttpConnector::new(4));
